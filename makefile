@@ -1,7 +1,7 @@
 main:
-	gcc jmshl.c -o jmshl.o
+	gcc jmshl.c -o jmshl.out
 
 del:
-	rm *.o
+	rm *.out
 
 clean: del main

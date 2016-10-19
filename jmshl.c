@@ -6,9 +6,9 @@ Description:
 	has a custom implementation of cd
 
 TODO:
-	-input redirection (done)
-	-piping
-	-command history and audit log
+	- input redirection (done)
+	- piping (done)
+	- audit log 
 	- append ("<<")
 
 This shell extends a basic shell written by:
@@ -55,6 +55,8 @@ int cd(char **args)
 
 /*
 runpipe(fd,arg1,arg2)
+accepts a file descriptor for piping, then forks a new process to execute the
+first command and hand the output over to the second command
 */
 void runpipe(int fd[], char **arg1, char **arg2)
 {
@@ -67,8 +69,11 @@ void runpipe(int fd[], char **arg1, char **arg2)
 			execvp(arg1[0], arg1);
 			exit(1);
 			break;
+
 		case -1:
+			fprintf(stderr,"Unable to pipe. Free up some memory and try again.\n");
 			break;
+
 		default:
 			wait(NULL);
 			dup2(fd[0],STDIN_FILENO);
@@ -94,6 +99,7 @@ int main()
   		i,
   		j,
   		out = 0,
+  		append = 0,
   		in = 0,
   		pipeflag = 0;
 	char buffer[BUFFERSIZE], 
@@ -127,10 +133,15 @@ int main()
 		     	if( token && out )
 		     	{
 		     		//perform output redirection
-					fd = creat(token, 0777);
+					fd = append ? open(token, O_WRONLY|O_APPEND) : creat(token, 0777);
+					if(fd < 0)
+						fprintf(stderr, "Unable to redirect output.\n");
+					if(fd < 0 && append)
+						fprintf(stderr, "The filename provided does not exist.\n");
 					dup2(fd, STDOUT_FILENO);
 					close(fd);
 					out = 0;
+					append = 0;
 				}
 				else if( token && in )
 				{
@@ -146,7 +157,14 @@ int main()
 			    {
 			    	//set output flag and indicate the end of the command array
 			    	out = 1;
-			    	//args[i++] = (char *) NULL;
+			    	args[i++] = (char *) NULL;
+	 		    }
+	 		    else if( token && strcmp(token,">>") == 0)
+	 		    {
+	 		    	out = 1;
+	 		    	append = 1;
+	 		    	args[i++] = (char *) NULL;
+
 	 		    }
 	 		    else if( token && strcmp(token,"<") == 0)
 	 		    {
@@ -175,6 +193,8 @@ int main()
 		    //if the entered command is cd
 		    if( strcmp(args[0], "cd") == 0 )
 		    	cd(args); //then cd
+		    else if( strcmp(args[0], "exit") == 0)
+		    	break;
 			else //execute it in a child process
 			{
 				switch( pid = fork() )
