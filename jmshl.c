@@ -8,7 +8,8 @@ Description:
 TODO:
 	-input redirection (done)
 	-piping
-	-command history
+	-command history and audit log
+	- append ("<<")
 
 This shell extends a basic shell written by:
 T. Ritter 10/6/2014
@@ -26,21 +27,11 @@ T. Ritter 10/6/2014
 /* global prompt */
 char *prompt = "jmshl$ ";
 
-/*
-sigintHandler(int)
-accepts a signal interruption and handles it
-*/
-void sigintHandler(int sig_num)
+void usr1Handler()
 {
-    /* Reset handler to catch SIGINT next time.
-       Refer http://en.cppreference.com/w/c/program/signal */
-    signal(SIGINT, sigintHandler);
-    system("clear");
-    printf("\nAny running processes have been terminated.\n");
-    printf("To exit jmshl, use Ctrl + D\n");
-	fprintf( stderr, "%s", prompt );
-
-    return;
+	FILE *filep = fopen("audit.txt","a");
+	fclose(filep);
+	return;
 }
 
 /*
@@ -63,6 +54,33 @@ int cd(char **args)
 }
 
 /*
+runpipe(fd,arg1,arg2)
+*/
+void runpipe(int fd[], char **arg1, char **arg2)
+{
+	pipe(fd);
+	switch(fork())
+	{
+		case 0:
+			dup2(fd[1],STDOUT_FILENO);
+			close(fd[0]);
+			execvp(arg1[0], arg1);
+			exit(1);
+			break;
+		case -1:
+			break;
+		default:
+			wait(NULL);
+			dup2(fd[0],STDIN_FILENO);
+			close(fd[1]);
+			execvp(arg2[0], arg2);
+			break;
+	}
+
+	return;
+}
+
+/*
 main()
 */
 int main()
@@ -70,22 +88,30 @@ int main()
 	system("clear");
 	int	pid, 
   		fd, //file descriptor
+  		pfd[2],
   		cout = dup(STDOUT_FILENO), //get a reference to stdout
   		cin = dup(STDIN_FILENO), //get a reference to stdin
   		i,
+  		j,
   		out = 0,
-  		in = 0;
+  		in = 0,
+  		pipeflag = 0;
 	char buffer[BUFFERSIZE], 
   		 *token, 
   		 *separator = " \t\n", 
-  		 **args;
+  		 **args,
+  		 **cmd1,
+  		 **cmd2;
  	signal(SIGINT, SIG_IGN);
+ 	signal(SIGUSR1, usr1Handler);
 
 	 // max 80 chars in buffer 
 
 	args = (char **) malloc( 80 * sizeof(char *) );
+	cmd1 = (char **) malloc( 80 * sizeof(char *) );
+	cmd2 = (char **) malloc( 80 * sizeof(char *) );
+
 	fprintf( stderr, "%s", prompt );
-	fflush(stdin);
 
 	while ( fgets( buffer, 80, stdin ) != NULL ) //wait for new commands
 	{
@@ -101,7 +127,7 @@ int main()
 		     	if( token && out )
 		     	{
 		     		//perform output redirection
-					fd = creat(token, 644);
+					fd = creat(token, 0777);
 					dup2(fd, STDOUT_FILENO);
 					close(fd);
 					out = 0;
@@ -120,12 +146,25 @@ int main()
 			    {
 			    	//set output flag and indicate the end of the command array
 			    	out = 1;
-			    	args[i++] = (char *) NULL;
+			    	//args[i++] = (char *) NULL;
 	 		    }
 	 		    else if( token && strcmp(token,"<") == 0)
 	 		    {
 	 		    	in = 1;
-	 		    	args[i++] = (char *) NULL;
+	 		    	//args[i++] = (char *) NULL;
+	 		    }
+	 		    else if( token && strcmp(token,"|") == 0)
+	 		    {
+	 		    	cmd1 = args;
+	 		    	pipeflag = 1;
+	 		    	j = 0;
+
+	 		    	while( token != NULL )
+	 		    	{
+	 		    		token = strtok( NULL, separator );
+	 		    		cmd2[j++] = token;
+	 		    	}
+
 	 		    }
 				else
 			      	args[i++] = token;  //build command array 
@@ -141,6 +180,11 @@ int main()
 				switch( pid = fork() )
 				{
 					case 0:
+						if(pipeflag)
+						{
+							runpipe(pfd,cmd1,cmd2);
+							pipeflag = 0;
+						}
 						execvp( args[0], args );   //child
 						fprintf( stderr, "ERROR %d no such program\n", errno);
 						exit(1);
@@ -154,6 +198,7 @@ int main()
 						wait(NULL);
 						dup2(cout, STDOUT_FILENO);
 						dup2(cin, STDIN_FILENO);
+						kill(getpid(), SIGUSR1);
 				}
 			}
 		}
@@ -166,6 +211,7 @@ int main()
 		fprintf( stderr, "%s", prompt );
 
 	}//end while
+
 
 	system("clear");
 	exit(0);

@@ -1,5 +1,5 @@
 main:
-	gcc jmshl.c -o jmlshl.o
+	gcc jmshl.c -o jmshl.o
 
 del:
 	rm *.o
